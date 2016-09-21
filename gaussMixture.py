@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import csv
 from collections import OrderedDict
 import cPickle
@@ -169,21 +170,32 @@ def outResults():
     total = [0]*N_PARTIES
     evaledEmbeddings = numpy.array(embeddings.eval())
     evaledMixture = numpy.array(mixture.eval())
+    errors = {}
+    for region in regionIds:
+        errors[region] = []
     for i, area in enumerate(areas):
-        total += area._voted*(evaledMixture[i][0]*evaledEmbeddings[area._russia] + evaledMixture[i][1]*evaledEmbeddings[area._region])
+        regionDistr = evaledMixture[i][0]*evaledEmbeddings[area._russia] + evaledMixture[i][1]*evaledEmbeddings[area._region]
+        total += area._voted*regionDistr
+        errors[area._region].append( ((regionDistr - area._votes)**2).mean() )
+    for r in regionIds:
+        print("%s\t%f" % (id2region[r], numpy.average(errors[r])))
+    print("-------------")
     for i in range(N_PARTIES):
         print("%s\t%f\t%f" % (header[N_PARTY_OFFSET + i], total[i], totalArea._voted*totalArea._votes[i] - total[i]))
+    sys.stdout.flush()
 
 for it in range(1000):
     outResults()
 
     trainResults = train()
+    lr = lr*0.95
+
     print(lr, trainResults[0])
     print("Russia", embeddings[areas[0]._russia].eval())
     print("Mixture", mixture.sum().eval())
     print("Embeddings", (embeddings**2).sum().eval())
     print("Gradients", trainResults[1].mean())
-    lr = lr*0.95
+    sys.stdout.flush()
 
     with open(args.save, 'wb') as fOut:
         cPickle.dump(params, fOut, protocol=cPickle.HIGHEST_PROTOCOL)
