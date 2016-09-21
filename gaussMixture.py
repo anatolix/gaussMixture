@@ -16,6 +16,7 @@ args = parser.parse_args()
 
 N_PARTIES = 14
 N_PARTY_OFFSET = 22
+N_GOOD_BALLOTS = 13
 
 class Area:
     def __init__(self):
@@ -27,6 +28,7 @@ class Area:
         self._oik = -1
         self._tik = -1
         self._uik = -1
+        self._weight = 1
 
     def normalize(self):
         for i in range(N_PARTIES):
@@ -42,6 +44,25 @@ def getRegion(name):
         id2region[region2id[name]] = name
     return region2id[name]
 
+def filterDigits(s):
+    res = ""
+    for ch in s:
+        if ch >= '0' and ch <= '9':
+            res += ch
+    return res
+
+trusted = set()
+with open("1316-vybory-deputatov-gosudarstvennoy-dumy-federalnogo-sobraniya-rossiyskoy-federatsii-sedmogo-sozyva.csv") as fIn:
+    csvIn = csv.reader(fIn, delimiter=',')
+    header = None
+    for index, row in enumerate(csvIn):
+        if 0 != index:
+            trusted.add(row[1] + "_" + row[20])
+        else:
+            header = row[:]
+print("Trusted:", len(trusted))
+
+cTrusted = 0
 with open("table_233_level_4.txt") as fIn:
     tsvIn = csv.reader(fIn, delimiter='\t')
     header = None
@@ -63,14 +84,19 @@ with open("table_233_level_4.txt") as fIn:
             for i in range(N_PARTIES):
                 totalArea._votes[i] += area._votes[i]
             area.normalize()
+            trustedKey = filterDigits(row[3]) + "_" + row[N_GOOD_BALLOTS]
+            if trustedKey in trusted:
+                area._weight = 200
+                cTrusted += 1
             areas.append(area)
         else:
             header = row[:]
-            print(header)
+            # print(header)
             print(header[N_PARTY_OFFSET])
             print(header[10], header[11])
+            print(header[N_GOOD_BALLOTS])
 
-print("Areas = %d" % len(areas))
+print("Areas = %d" % len(areas), ", trusted: ", cTrusted)
 print("Regions = %d" % len(region2id))
 totalArea.normalize()
 print("Avg = (%s)" % " ".join(map(str, totalArea._votes)))
@@ -90,14 +116,14 @@ if not loadedParams:
     for i in range(len(region2id)):
         numpyEmbeddings[i] = totalArea._votes[:]
     for i, area in enumerate(areas):
-        numpyEmbeddings[area._uik] = [0]*5
+        numpyEmbeddings[area._uik] = [0]*N_PARTIES
 else:
     numpyEmbeddings = loadedParams[0].eval()
 embeddings = theano.shared(name='embeddings', value=numpyEmbeddings)
 if not loadedParams:
     numpyMixture = numpy.random.uniform(0.1, 0.2, (len(areas), 4)).astype(theano.config.floatX)
     for i in range(len(areas)):
-        numpyMixture[i][:] = [1, -0.0001, 0.0001, -0.0001]
+        numpyMixture[i][:] = [1, 0.1, 0.1, 0.1]
 else:
     numpyMixture = loadedParams[1].eval()
 mixture = theano.shared(name='mixture', value=numpyMixture)
@@ -107,13 +133,17 @@ for i, area in enumerate(areas):
 indices = theano.shared(numpyIndices)
 areasIndices = T.arange(len(areas))
 params = [embeddings, mixture]
+numpyWeights = numpy.zeros( shape=(len(id2region)) ).astype(theano.config.floatX)
+for i in range(len(areas)):
+    numpyWeights[i] = areas[i]._weight
+weights = theano.shared(numpyWeights)
 
-loss = theano.scan( lambda i: 100000*(target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] - mixture[i][3]*embeddings[indices[i][3]] - embeddings[indices[i][4]])**2 +
-                                abs(mixture[i][0]) + 3*abs(mixture[i][1]) + 9*abs(mixture[i][2]) + 27*abs(mixture[i][3]), sequences=areasIndices )[0].sum() + 30000*(embeddings**2).sum()
+loss = theano.scan( lambda i: weights[i]*(100000*(target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] - mixture[i][3]*embeddings[indices[i][3]] - embeddings[indices[i][4]])**2 +
+                                abs(mixture[i][0]) + 3*abs(mixture[i][1]) + 9*abs(mixture[i][2]) + 27*abs(mixture[i][3])), sequences=areasIndices )[0].sum() + 40000*(embeddings**2).sum()
 gradients = T.grad(loss, params)
 gradientsMean = theano.scan(lambda g, _: g.mean(), sequences=gradients)[0].mean()
 lr = T.scalar(name='lr')
-lr = 0.00001
+lr = 0.0005
 
 # AdaGrad
 updates = OrderedDict()
@@ -131,6 +161,7 @@ for it in range(1000):
     print(lr, trainResults[0])
     print("Russia", embeddings[areas[0]._russia].eval())
     print("Mixture", mixture.sum().eval())
+    print("Embeddings", (embeddings**2).sum().eval())
     print("Gradients", trainResults[1].mean())
     lr = lr*0.95
 
