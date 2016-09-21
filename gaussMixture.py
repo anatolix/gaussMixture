@@ -68,7 +68,7 @@ for i, area in enumerate(areas):
 target = theano.shared(name='target', value=numpyTarget)
 numpyEmbeddings = numpy.random.uniform(-1.0, 1.0, (len(region2id), N_PARTIES)).astype(theano.config.floatX)
 for i, area in enumerate(region2id):
-    numpyEmbeddings = someArea._votes[:]
+    numpyEmbeddings[i] = someArea._votes[:]
 embeddings = theano.shared(name='embeddings', value=numpyEmbeddings)
 numpyMixture = numpy.random.uniform(0.1, 0.2, (len(areas), 5)).astype(theano.config.floatX)
 for i in range(len(areas)):
