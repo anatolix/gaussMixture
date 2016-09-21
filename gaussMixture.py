@@ -2,6 +2,7 @@
 
 import csv
 from collections import OrderedDict
+import cPickle
 import numpy
 import theano
 from theano import tensor as T
@@ -79,7 +80,7 @@ indices = theano.shared(numpyIndices)
 areasIndices = T.arange(len(areas))
 params = [embeddings, mixture]
 
-loss = theano.scan( lambda i: 100000*(target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] - mixture[i][3]*embeddings[indices[i][3]] - mixture[i][4]*embeddings[indices[i][4]])**2 +
+loss = theano.scan( lambda i: 1000*(target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] - mixture[i][3]*embeddings[indices[i][3]] - mixture[i][4]*embeddings[indices[i][4]])**2 +
                                 abs(mixture[i][1]) + 10*abs(mixture[i][2]) + 100*abs(mixture[i][3]) + 1000*abs(mixture[i][4]), sequences=areasIndices )[0].sum() + 0.001*(embeddings**2).sum()
 gradients = T.grad(loss, params)
 lr = T.scalar(name='lr')
@@ -91,3 +92,6 @@ for it in range(10):
     print(lr, train())
     print(embeddings[areas[0]._russia].eval())
     lr = lr*0.95
+
+    with open('gauss.save', 'wb') as fOut:
+        cPickle.dump(params, fOut, protocol=cPickle.HIGHEST_PROTOCOL)
