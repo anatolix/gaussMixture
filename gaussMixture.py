@@ -63,6 +63,8 @@ with open("1316-vybory-deputatov-gosudarstvennoy-dumy-federalnogo-sobraniya-ross
 print("Trusted:", len(trusted))
 
 cTrusted = 0
+voted = {}
+regionIds = set()
 with open("table_233_level_4.txt") as fIn:
     tsvIn = csv.reader(fIn, delimiter='\t')
     header = None
@@ -80,6 +82,11 @@ with open("table_233_level_4.txt") as fIn:
             area._oik = getRegion(row[0] + row[1])
             area._tik = getRegion(row[0] + row[1] + row[2])
             area._uik = getRegion(row[0] + row[1] + row[2] + row[3])
+            regionIds.add(area._region)
+            for pid in [area._region, area._oik, area._tik, area._uik, area._id]:
+                if not pid in voted:
+                    voted[pid] = 0
+                voted[pid] += area._voted
             totalArea._voted += area._voted
             for i in range(N_PARTIES):
                 totalArea._votes[i] += area._votes[i]
@@ -138,12 +145,14 @@ for i in range(len(areas)):
     numpyWeights[i] = areas[i]._weight
 weights = theano.shared(numpyWeights)
 
-loss = theano.scan( lambda i: weights[i]*(100000*(target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] - mixture[i][3]*embeddings[indices[i][3]] - embeddings[indices[i][4]])**2 +
-                                abs(mixture[i][0]) + 3*abs(mixture[i][1]) + 9*abs(mixture[i][2]) + 27*abs(mixture[i][3])), sequences=areasIndices )[0].sum() + 40000*(embeddings**2).sum()
+loss = theano.scan( lambda i: weights[i]*(100000*(
+                                target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] -
+                                mixture[i][3]*embeddings[indices[i][3]] - embeddings[indices[i][4]])**2 +
+                                1000*(embeddings[indices[i][4]]**2) + abs(mixture[i][0]) + 3*abs(mixture[i][1]) + 9*abs(mixture[i][2]) + 27*abs(mixture[i][3])), sequences=areasIndices )[0].sum() + 500*(embeddings**2).sum()
 gradients = T.grad(loss, params)
 gradientsMean = theano.scan(lambda g, _: g.mean(), sequences=gradients)[0].mean()
 lr = T.scalar(name='lr')
-lr = 0.0005
+lr = 0.01
 
 # AdaGrad
 updates = OrderedDict()
@@ -156,7 +165,18 @@ for param, grad in zip(params, gradients):
 
 train = theano.function(inputs=[], outputs=[loss, gradientsMean], updates=updates)
 
+def outResults():
+    total = [0]*N_PARTIES
+    evaledEmbeddings = numpy.array(embeddings.eval())
+    evaledMixture = numpy.array(mixture.eval())
+    for i, area in enumerate(areas):
+        total += area._voted*(evaledMixture[i][0]*evaledEmbeddings[area._russia] + evaledMixture[i][1]*evaledEmbeddings[area._region])
+    for i in range(N_PARTIES):
+        print("%s\t%f\t%f" % (header[N_PARTY_OFFSET + i], total[i], totalArea._voted*totalArea._votes[i] - total[i]))
+
 for it in range(1000):
+    outResults()
+
     trainResults = train()
     print(lr, trainResults[0])
     print("Russia", embeddings[areas[0]._russia].eval())
@@ -168,11 +188,11 @@ for it in range(1000):
     with open(args.save, 'wb') as fOut:
         cPickle.dump(params, fOut, protocol=cPickle.HIGHEST_PROTOCOL)
     with open('embeddings.save', 'w') as fOut:
-        evaledEmbeddings = embeddings.eval()
+        evaledEmbeddings = numpy.array(embeddings.eval())
         for i in range(len(region2id)):
-            print >>fOut, i, id2region[i], numpy.array(evaledEmbeddings[i])
+            print >>fOut, i, id2region[i], evaledEmbeddings[i]
     with open('mixture.save', 'w') as fOut:
-        evaledMixture = mixture.eval()
+        evaledMixture = numpy.array(mixture.eval())
         for i, area in enumerate(areas):
-            print >>fOut, i, id2region[area._region], id2region[area._oik], id2region[area._tik], id2region[area._uik], numpy.array(evaledMixture[i])
+            print >>fOut, i, id2region[area._region], id2region[area._oik], id2region[area._tik], id2region[area._uik], evaledMixture[i]
 
