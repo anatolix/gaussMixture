@@ -35,7 +35,6 @@ def getRegion(name):
 with open("table_233_level_4.txt") as fIn:
     tsvIn = csv.reader(fIn, delimiter='\t')
     header = None
-    someArea = None
     for index, row in enumerate(tsvIn):
         if 0 != index:
             area = Area()
@@ -51,7 +50,6 @@ with open("table_233_level_4.txt") as fIn:
             area._uik = getRegion(row[0] + row[1] + row[2] + row[3])
             area.normalize()
             areas.append(area)
-            someArea = area
         else:
             header = row[:]
             print(header)
@@ -66,9 +64,9 @@ for i, area in enumerate(areas):
     for j in range(N_PARTIES):
         numpyTarget[i][j] = area._votes[j]
 target = theano.shared(name='target', value=numpyTarget)
-numpyEmbeddings = numpy.random.uniform(-1.0, 1.0, (len(region2id), N_PARTIES)).astype(theano.config.floatX)
-for i, area in enumerate(region2id):
-    numpyEmbeddings[i] = someArea._votes[:]
+numpyEmbeddings = numpy.random.uniform(0, 0, (len(region2id), N_PARTIES)).astype(theano.config.floatX)
+for i, area in enumerate(areas):
+    numpyEmbeddings[area._uik] = area._votes[:]
 embeddings = theano.shared(name='embeddings', value=numpyEmbeddings)
 numpyMixture = numpy.random.uniform(0.1, 0.2, (len(areas), 5)).astype(theano.config.floatX)
 for i in range(len(areas)):
@@ -85,7 +83,7 @@ loss = theano.scan( lambda i: 100000*(target[i] - mixture[i][0]*embeddings[indic
                                 abs(mixture[i][1]) + 10*abs(mixture[i][2]) + 100*abs(mixture[i][3]) + 1000*abs(mixture[i][4]), sequences=areasIndices )[0].sum() + 0.001*(embeddings**2).sum()
 gradients = T.grad(loss, params)
 lr = T.scalar(name='lr')
-lr = 0.001
+lr = 0.0001
 updates = OrderedDict((p, p - lr*g) for p, g in zip(params, gradients))
 train = theano.function(inputs=[], outputs=loss, updates=updates)
 
