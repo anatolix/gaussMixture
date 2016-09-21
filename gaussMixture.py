@@ -109,11 +109,11 @@ areasIndices = T.arange(len(areas))
 params = [embeddings, mixture]
 
 loss = theano.scan( lambda i: 100000*(target[i] - mixture[i][0]*embeddings[indices[i][0]] - mixture[i][1]*embeddings[indices[i][1]] - mixture[i][2]*embeddings[indices[i][2]] - mixture[i][3]*embeddings[indices[i][3]] - embeddings[indices[i][4]])**2 +
-                                abs(mixture[i][0]) + 3*abs(mixture[i][1]) + 9*abs(mixture[i][2]) + 27*abs(mixture[i][3]), sequences=areasIndices )[0].sum() + 100*(embeddings**2).sum()
+                                abs(mixture[i][0]) + 3*abs(mixture[i][1]) + 9*abs(mixture[i][2]) + 27*abs(mixture[i][3]), sequences=areasIndices )[0].sum() + 30000*(embeddings**2).sum()
 gradients = T.grad(loss, params)
 gradientsMean = theano.scan(lambda g, _: g.mean(), sequences=gradients)[0].mean()
 lr = T.scalar(name='lr')
-lr = 0.0000001
+lr = 0.00001
 
 # AdaGrad
 updates = OrderedDict()
