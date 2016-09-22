@@ -16,6 +16,7 @@ parser.add_argument('--save', dest='save', help='filename to save', default="gau
 args = parser.parse_args()
 
 N_PARTIES = 14
+N_DIM = N_PARTIES + 1
 N_PARTY_OFFSET = 22
 N_GOOD_BALLOTS = 13
 
@@ -30,10 +31,13 @@ class Area:
         self._tik = -1
         self._uik = -1
         self._weight = 1
+        self._total = 0
+        self._turnout = 0
 
     def normalize(self):
         for i in range(N_PARTIES):
             self._votes[i] /= self._voted
+        self._turnout = self._voted / self._total
 
 areas = []
 region2id = {}
@@ -65,6 +69,7 @@ print("Trusted:", len(trusted))
 
 cTrusted = 0
 voted = {}
+total = {}
 regionIds = set()
 with open("table_233_level_4.txt") as fIn:
     tsvIn = csv.reader(fIn, delimiter='\t')
@@ -77,6 +82,7 @@ with open("table_233_level_4.txt") as fIn:
             for i in range(N_PARTIES):
                 area._votes[i] = float(row[22 + i])
             area._voted = float(row[10]) + float(row[11])
+            area._total = float(row[4])
             area._id = index + 1000000
             area._russia = getRegion("RUSSIA")
             area._region = getRegion(row[0])
@@ -84,11 +90,14 @@ with open("table_233_level_4.txt") as fIn:
             area._tik = getRegion(row[0] + row[1] + row[2])
             area._uik = getRegion(row[0] + row[1] + row[2] + row[3])
             regionIds.add(area._region)
-            for pid in [area._region, area._oik, area._tik, area._uik, area._id]:
+            for pid in [area._region, area._oik, area._tik, area._uik, area._russia, area._id]:
                 if not pid in voted:
                     voted[pid] = 0
+                    total[pid] = 0
                 voted[pid] += area._voted
+                total[pid] += area._total
             totalArea._voted += area._voted
+            totalArea._total += area._total
             for i in range(N_PARTIES):
                 totalArea._votes[i] += area._votes[i]
             area.normalize()
@@ -114,17 +123,20 @@ if len(args.load) != 0:
     with open(args.load, 'rb') as fIn:
         loadedParams = cPickle.load(fIn)
 
-numpyTarget = numpy.random.uniform(-1.0, 1.0, (len(areas), N_PARTIES)).astype(theano.config.floatX)
+numpyTarget = numpy.random.uniform(-1.0, 1.0, (len(areas), N_DIM)).astype(theano.config.floatX)
 for i, area in enumerate(areas):
     for j in range(N_PARTIES):
         numpyTarget[i][j] = area._votes[j]
+    numpyTarget[i][N_PARTIES] = area._turnout
 target = theano.shared(name='target', value=numpyTarget)
 if not loadedParams:
-    numpyEmbeddings = numpy.random.uniform(-0.001, 0.001, (len(region2id), N_PARTIES)).astype(theano.config.floatX)
+    numpyEmbeddings = numpy.random.uniform(-0.001, 0.001, (len(region2id), N_DIM)).astype(theano.config.floatX)
     for i in range(len(region2id)):
-        numpyEmbeddings[i] = totalArea._votes[:]
+        for j in range(N_PARTIES):
+            numpyEmbeddings[i][j] = totalArea._votes[j]
+        numpyEmbeddings[i][N_PARTIES] = totalArea._turnout
     for i, area in enumerate(areas):
-        numpyEmbeddings[area._uik] = [0]*N_PARTIES
+        numpyEmbeddings[area._uik] = [0]*N_DIM
 else:
     numpyEmbeddings = loadedParams[0].eval()
 embeddings = theano.shared(name='embeddings', value=numpyEmbeddings)
@@ -167,16 +179,17 @@ for param, grad in zip(params, gradients):
 train = theano.function(inputs=[], outputs=[loss, gradientsMean], updates=updates)
 
 def outResults():
-    total = [0]*N_PARTIES
+    total = [0]*N_DIM
     evaledEmbeddings = numpy.array(embeddings.eval())
     evaledMixture = numpy.array(mixture.eval())
+    evaledTarget = numpy.array(target.eval())
     errors = {}
     for region in regionIds:
         errors[region] = []
     for i, area in enumerate(areas):
         regionDistr = evaledMixture[i][0]*evaledEmbeddings[area._russia] + evaledMixture[i][1]*evaledEmbeddings[area._region]
-        total += area._voted*regionDistr
-        errors[area._region].append( ((regionDistr - area._votes)**2).mean() )
+        total += area._total*regionDistr*regionDistr[N_PARTIES]
+        errors[area._region].append( ((regionDistr - evaledTarget[i])**2).mean() )
     for r in regionIds:
         print("%s\t%f" % (id2region[r], numpy.average(errors[r])))
     print("-------------")
